@@ -4,6 +4,6 @@
   Restrict the key to Google Drive API and your GitHub Pages HTTP referrer.
 */
 window.APP_CONFIG = {
-  GOOGLE_API_KEY: "PASTE_YOUR_RESTRICTED_GOOGLE_API_KEY_HERE",
+  GOOGLE_API_KEY: "https://49354653393-c8r095ue4p1ge6qnh79dofpprob7ig2l.apps.googleusercontent.com",
   DRIVE_FOLDER_ID: "16aZyJojQUR4E1cCh6pvkYf1VQtFnPnAm"
 };
