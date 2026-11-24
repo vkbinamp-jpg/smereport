@@ -55,6 +55,7 @@
       </header>
 
       <section class="panel filter-panel">
+        <div class="section-heading"><div><h2>Select Report</h2><p class="muted">Choose the report you want to view.</p></div></div><div class="filter-buttons"><button id="smeModeBtn" class="btn primary active" type="button">SME Report</button><button id="hospitalModeBtn" class="btn light" type="button">Hospital Report</button></div>
         <div class="section-heading"><div><h2>Report Filters</h2><p class="muted">Choose a date range and optionally narrow the report.</p></div><span id="fileCount" class="pill">0 files</span></div>
         <div class="filters-grid">
           <div><label for="fromDate">From Date</label><input type="date" id="fromDate"></div>
@@ -82,7 +83,7 @@
       </section>
 
       <section id="companyReport" class="panel">
-        <div class="section-heading"><div><h2>Company-wise Summary Report</h2><p class="muted">Click a company to inspect its patient-level details.</p></div><button id="exportBtn" class="btn light" disabled>Export CSV</button></div>
+        <div class="section-heading"><div><h2 id="companyReportTitle">Company-wise Summary Report</h2><p class="muted">Click a company to inspect its patient-level details.</p></div><button id="exportBtn" class="btn light" disabled>Export CSV</button></div>
         <div class="table-wrap"><table><thead><tr><th>S.No.</th><th>Company Name</th><th>Unique Patients</th><th>Total Records</th><th>Contribution</th></tr></thead><tbody id="companyTable"><tr><td colspan="5" class="empty">No data loaded yet.</td></tr></tbody><tfoot id="companyTableFoot"></tfoot></table></div>
         <div class="table-footer"><span id="tableInfo" class="muted small-text">0 companies</span><div class="pagination"><button id="prevPage" class="btn light" disabled>Previous</button><span id="pageInfo">Page 1</span><button id="nextPage" class="btn light" disabled>Next</button></div></div>
       </section>

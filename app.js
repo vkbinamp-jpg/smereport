@@ -4,7 +4,7 @@
   const cfg = window.APP_CONFIG || {};
   const $ = id => document.getElementById(id);
   const state = {
-    rows: [], allRows: [], files: [], processedFiles: 0, issues: [], logs: [],
+    rows: [], allRows: [], files: [], hospitalRows: [], allHospitalRows: [], mode: "sme", processedFiles: 0, issues: [], logs: [],
     page: 1, pageSize: 10, selectedCompany: null, bar: null, pie: null
   };
   const REQUIRED = ["uhid", "company"];
@@ -13,7 +13,7 @@
     company: ["ref","referred name","referredname","company","company name","referrer name","referrername","organization","organisation","corporate","client name"],
     patientName: ["patient name","name","patient","member name"],
     date: ["checkup date","check up date","visit date","appointment date","date of visit","registration date","invoice date","item billed date","date"],
-    gender: ["gender","sex"], age: ["age","patient age"]
+    gender: ["gender","sex"], age: ["age","patient age"], item: ["item name","itemname"], department: ["department name","department"], billed: ["total billed","totalbilled"], paid: ["net paid","netpaid"], due: ["due amount","dueamount"]
   };
   const norm = s => String(s ?? "").trim().toLowerCase().replace(/[\s_\-./()]+/g," ").replace(/\s+/g," ").trim();
   const clean = s => String(s ?? "").replace(/\s+/g," ").trim();
@@ -74,22 +74,15 @@
     if (!publicDriveReady()) { connectDrive(); return; }
     status("Reading CSV / Excel file list from the fixed Google Drive folder...");
     $("refreshBtn").disabled=true;
-    state.rows=[]; state.allRows=[]; state.files=[]; state.processedFiles=0; state.issues=[];
+    state.rows=[]; state.allRows=[]; state.hospitalRows=[]; state.allHospitalRows=[]; state.files=[]; state.processedFiles=0; state.issues=[];
     try {
-      const q = `'${cfg.DRIVE_FOLDER_ID}' in parents and trashed = false`;
-      let allDriveFiles=[], pageToken="";
-      do {
-        const params = new URLSearchParams({q, pageSize:"1000", fields:"files(id,name,mimeType,modifiedTime,size),nextPageToken", orderBy:"name"});
-        if(pageToken) params.set("pageToken",pageToken);
-        const res = await driveFetch("https://www.googleapis.com/drive/v3/files?"+params.toString()+"&key="+encodeURIComponent(cfg.GOOGLE_API_KEY));
-        const data=await res.json();
-        allDriveFiles.push(...(data.files||[]));
-        pageToken=data.nextPageToken||"";
-      } while(pageToken);
+      const folderSpecs=[{id:cfg.DRIVE_FOLDER_ID,kind:"sme"},{id:cfg.HOSPITAL_FOLDER_ID,kind:"hospital"}].filter(x=>x.id);
+      let allDriveFiles=[];
+      for(const folder of folderSpecs){let pageToken="";do{const q=`\'${folder.id}\' in parents and trashed = false`;const params=new URLSearchParams({q,pageSize:"1000",fields:"files(id,name,mimeType,modifiedTime,size),nextPageToken",orderBy:"name"});if(pageToken)params.set("pageToken",pageToken);const res=await driveFetch("https://www.googleapis.com/drive/v3/files?"+params.toString()+"&key="+encodeURIComponent(cfg.GOOGLE_API_KEY));const data=await res.json();(data.files||[]).forEach(f=>allDriveFiles.push({...f,_kind:folder.kind}));pageToken=data.nextPageToken||"";}while(pageToken);}
       const dataFiles=allDriveFiles.filter(f => {
         const name=String(f.name||"");
         const mime=String(f.mimeType||"").toLowerCase();
-        return /\\.(csv|xlsx|xls)$/i.test(name) ||
+        return /\.(csv|xlsx|xls)$/i.test(name) ||
           mime==="text/csv" || mime==="application/csv" || mime==="text/comma-separated-values";
       }).filter(f => !String(f.mimeType||"").startsWith("application/vnd.google-apps."));
       state.files=dataFiles;
@@ -114,13 +107,13 @@
           for (const sheetName of workbook.SheetNames) {
             const sheet=workbook.Sheets[sheetName];
             const matrix=XLSX.utils.sheet_to_json(sheet,{header:1,defval:"",raw:false});
-            const result=parseWorksheet(matrix,file.name,sheetName);
+            const result=file._kind==="hospital"?parseHospitalWorksheet(matrix,file.name,sheetName):parseWorksheet(matrix,file.name,sheetName);
             if (result.error) {
               state.issues.push({file:file.name,sheet:sheetName,issue:result.error,rows:"—"});
               continue;
             }
-            state.rows.push(...result.rows);
-            state.issues.push(...result.issues);
+            if(file._kind==="hospital")state.hospitalRows.push(...result.rows);else state.rows.push(...result.rows);
+            state.issues.push(...(result.issues||[]));
             sheetCount++;
           }
           if (sheetCount > 0) state.processedFiles++;
@@ -130,7 +123,7 @@
           log(file.name+": processing failed ("+err.message+")",false);
         }
       }
-      state.allRows=state.rows.slice();
+      state.allRows=state.rows.slice();state.allHospitalRows=state.hospitalRows.slice();
       populateFilterOptions();
       setDefaultDates();
       applyFilters();
@@ -168,6 +161,8 @@
       const r=matrix[i]||[];
       const get=key=>header.map[key]===undefined?"":r[header.map[key]];
       const uhid=clean(get("uhid"));
+      const itemName=clean(get("item"));
+      if (header.map.item !== undefined && !/^health/i.test(itemName)) continue;
       // Billing exports append totals/refunds after a blank separator. Stop at that boundary.
       if(!uhid && rows.length && r.every(v=>clean(v)==="")) break;
       if(r.every(v=>clean(v)==="")){blank++;continue;}
@@ -192,6 +187,41 @@
     if(invalidDates) issues.push({file,sheet,issue:"Rows with invalid checkup date",rows:invalidDates});
     return {rows,issues};
   }
+
+  function parseHospitalWorksheet(matrix,file,sheet){
+    let headerIndex=-1, map={};
+    for(let i=0;i<Math.min(matrix.length,30);i++){
+      const cells=(matrix[i]||[]).map(norm);
+      const find=(names)=>cells.findIndex(c=>names.includes(c));
+      const candidate={date:find(["invoice date","item billed date"]),department:find(["department name","department"]),billed:find(["total billed"]),paid:find(["net paid"]),due:find(["due amount"])};
+      if(candidate.department>=0&&candidate.billed>=0&&candidate.paid>=0){headerIndex=i;map=candidate;break;}
+    }
+    if(headerIndex<0)return {error:"Hospital report columns not found (Department Name, Total Billed, Net Paid)."};
+    const out=[]; let section="sales";
+    for(let i=headerIndex+1;i<matrix.length;i++){
+      const r=matrix[i]||[]; const first=norm(r[0]);
+      if(first==="refunds"||first==="summary")break;
+      if(r.every(v=>clean(v)===""))continue;
+      const department=clean(r[map.department]); if(!department)continue;
+      const billed=toAmount(r[map.billed]), paid=toAmount(r[map.paid]), due=map.due>=0?toAmount(r[map.due]):Math.max(0,billed-paid);
+      const date=map.date>=0?parseDate(r[map.date]):null;
+      out.push({department,date,billed,paid,due,file,sheet});
+    }
+    return {rows:out};
+  }
+  function toAmount(v){const n=Number(String(v??"").replace(/[,₹\s]/g,""));return Number.isFinite(n)?n:0;}
+  function filteredHospitalRows(){const from=$("fromDate").value,to=$("toDate").value,file=$("fileFilter").value;return state.allHospitalRows.filter(r=>(!from||(r.date&&r.date>=from))&&(!to||(r.date&&r.date<=to))&&(!file||r.file===file));}
+  function renderHospital(){
+    const map=new Map(); for(const r of state.rows){const x=map.get(r.department)||{department:r.department,billed:0,paid:0,due:0,rows:0};x.billed+=r.billed;x.paid+=r.paid;x.due+=r.due;x.rows++;map.set(r.department,x);}
+    const list=[...map.values()].sort((a,b)=>b.paid-a.paid); const totals=list.reduce((a,x)=>({billed:a.billed+x.billed,paid:a.paid+x.paid,due:a.due+x.due,rows:a.rows+x.rows}),{billed:0,paid:0,due:0,rows:0});
+    $("kpiCompanies").parentElement.querySelector("p").textContent="Total Departments";$("kpiPatients").parentElement.querySelector("p").textContent="Net Paid Collection";$("kpiRecords").parentElement.querySelector("p").textContent="Total Billed";$("kpiFiles").parentElement.querySelector("p").textContent="Files Processed";$("kpiMissingUhid").parentElement.querySelector("p").textContent="Due Amount";$("kpiMissingCompany").parentElement.querySelector("p").textContent="Sales Rows";$("kpiCompanies").textContent=number(list.length);$("kpiPatients").textContent="₹"+number(totals.paid);$("kpiRecords").textContent="₹"+number(totals.billed);$("kpiFiles").textContent=number(state.processedFiles);$("kpiMissingUhid").textContent="₹"+number(totals.due);$("kpiMissingCompany").textContent=number(totals.rows);
+    const body=$("companyTable"); body.innerHTML=list.length?list.map((x,i)=>`<tr><td>${i+1}</td><td>${escapeHtml(x.department)}</td><td>₹${number(x.billed)}</td><td>₹${number(x.paid)}</td><td>₹${number(x.due)}</td></tr>`).join(""):'<tr><td colspan="5" class="empty">No department collection data.</td></tr>';
+    $("companyTable").parentElement.querySelector("thead").innerHTML="<tr><th>S.No.</th><th>Department</th><th>Total Billed</th><th>Net Paid</th><th>Due Amount</th></tr>";
+    $("companyTableFoot").innerHTML=`<tr><td colspan="2">Grand Total</td><td>₹${number(totals.billed)}</td><td>₹${number(totals.paid)}</td><td>₹${number(totals.due)}</td></tr>`;$("tableInfo").textContent=list.length+" departments";$("pageInfo").textContent="Department summary";$("prevPage").disabled=true;$("nextPage").disabled=true;$("exportBtn").disabled=!list.length;
+    if(state.bar)state.bar.destroy();if(state.pie)state.pie.destroy();if(window.Chart&&list.length){state.bar=new Chart($("barChart"),{type:"bar",data:{labels:list.slice(0,12).map(x=>x.department),datasets:[{label:"Net Paid",data:list.slice(0,12).map(x=>x.paid),backgroundColor:"#2878b9"}]},options:{responsive:true,maintainAspectRatio:false,indexAxis:"y"}});}
+  }
+  function setMode(mode){state.mode=mode;$("smeModeBtn").classList.toggle("active",mode==="sme");$("hospitalModeBtn").classList.toggle("active",mode==="hospital");$("companyFilter").parentElement.style.display=mode==="sme"?"":"none";$("uhidSearch").parentElement.style.display=mode==="sme"?"":"none";$("companyReportTitle").textContent=mode==="sme"?"Company-wise Summary Report":"Department-wise Collection Report";applyFilters();}
+  $("smeModeBtn").addEventListener("click",()=>setMode("sme"));$("hospitalModeBtn").addEventListener("click",()=>setMode("hospital"));
   function parseDate(value) {
     if(value instanceof Date && !isNaN(value)) return dateOnly(value);
     const s=clean(value); if(!s) return null;
@@ -225,7 +255,7 @@
       (!company||r.companyKey===company)&&(!uhid||r.uhidKey.includes(uhid))&&(!file||r.file===file));
   }
   function applyFilters(){
-    state.rows=filteredRows(); state.page=1; state.selectedCompany=null;
+    state.rows=state.mode==="hospital"?filteredHospitalRows():filteredRows(); state.page=1; state.selectedCompany=null;
     $("patientDetails").classList.add("hidden"); renderAll();
   }
   $("applyFiltersBtn").addEventListener("click",applyFilters);
@@ -261,6 +291,8 @@
     return {companies,uniqueTotal:companies.reduce((n,c)=>n+c.unique,0),recordTotal:rows.length,missingUhid,missingCompany,duplicates,invalidDates};
   }
   function renderAll(){
+    if(state.mode==="hospital"){renderHospital();renderQuality();renderLogs();return;}
+    ["Total Companies","Total Unique Patients","Total Health Checkup Records","Files Processed","Missing UHID","Missing Company"].forEach((t,i)=>$( ["kpiCompanies","kpiPatients","kpiRecords","kpiFiles","kpiMissingUhid","kpiMissingCompany"][i]).parentElement.querySelector("p").textContent=t);
     const s=summarize(state.rows);
     $("kpiCompanies").textContent=number(s.companies.length);
     $("kpiPatients").textContent=number(s.uniqueTotal);
@@ -310,14 +342,15 @@
     $("logs").innerHTML=state.logs.length?state.logs.map(x=>`<div class="log-row"><span><strong class="${x.ok?"log-ok":"log-error"}">${x.ok?"SUCCESS":"ERROR"}</strong> &nbsp;${escapeHtml(x.message)}</span><time class="muted">${escapeHtml(x.time)}</time></div>`).join(""):'<p class="empty">No processing activity yet.</p>';
   }
   function exportCsv(){
+    if(state.mode==="hospital"){const map=new Map();state.rows.forEach(r=>{const x=map.get(r.department)||{department:r.department,billed:0,paid:0,due:0};x.billed+=r.billed;x.paid+=r.paid;x.due+=r.due;map.set(r.department,x);});const lines=[["Department","Total Billed","Net Paid","Due Amount"],...[...map.values()].map(x=>[x.department,x.billed,x.paid,x.due])];downloadCsv(lines,"Hospital_Department_Collection.csv");return;}
     const s=summarize(state.rows);
     const lines=[["S.No.","Company Name","Unique Patients","Total Records","Contribution"]];
     s.companies.forEach((c,i)=>lines.push([i+1,c.name,c.unique,c.records,(s.uniqueTotal?c.unique/s.uniqueTotal*100:0).toFixed(2)+"%"]));
     lines.push(["","Grand Total",s.uniqueTotal,s.recordTotal,"100%"]);
     const csv=lines.map(row=>row.map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(",")).join("\r\n");
-    const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});
-    const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="Company_Wise_Health_Checkup_MIS.csv";a.click();URL.revokeObjectURL(url);
+    downloadCsv(lines,"Company_Wise_Health_Checkup_MIS.csv");
   }
+  function downloadCsv(lines,name){const csv=lines.map(row=>row.map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(",")).join("\r\n");const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=name;a.click();URL.revokeObjectURL(url);}
   setDefaultDates();
   renderAll();
 })();

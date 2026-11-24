@@ -1,12 +1,12 @@
 # Company Wise Health Checkup MIS (Static HTML)
 
-A browser-only MIS dashboard built with HTML, CSS and vanilla JavaScript. It reads `.xlsx` and `.xls` files from one fixed Google Drive folder using Google OAuth and the Drive API. It does not write to Drive and does not send patient rows to an application backend.
+A browser-only MIS dashboard built with HTML, CSS and vanilla JavaScript. It reads `.csv`, `.xlsx`, and `.xls` files from one fixed Google Drive folder using Google OAuth and the Drive API. It does not write to Drive and does not send patient rows to an application backend.
 
 ## Files
 
 - `index.html` – page layout
 - `styles.css` – responsive styling
-- `app.js` – Google Drive read-only integration, Excel parsing, filters, MIS calculations
+- `app.js` – Google Drive read-only integration, CSV / Excel parsing, filters, MIS calculations
 - `config.js.example` – configuration template; copy to `config.js`
 
 ## Important security limitations
@@ -48,7 +48,7 @@ Do not commit `config.js` to a public repository if you prefer not to expose you
 1. Open the published site.
 2. Login using the basic page gate `admin` / `admin` (change in `app.js` if you still want this convenience gate; it is not security).
 3. Click **Connect Google Drive** and authorize the Google account that can read the folder.
-4. The app reads direct child files with `.xlsx` or `.xls` extensions from the configured folder.
+4. The app reads direct child files with `.csv`, `.xlsx`, or `.xls` extensions from the configured folder.
 5. Select a date range and optional company, UHID or file filters, then click **Apply Filters**.
 6. Click a company name to view patient-level UHID details.
 7. Click **Refresh Data** to re-read files added to the folder.
@@ -71,4 +71,4 @@ Do not commit `config.js` to a public repository if you prefer not to expose you
 
 ## Before using real data
 
-Test with a copy containing dummy/anonymized patient data. Confirm actual column headers, date formats, header-row placement, and whether company names in `Ref` are consistent. The earlier uploaded billing summary CSV does not contain patient-level UHID/Ref records and cannot validate this parser.
+Test with a copy containing dummy/anonymized patient data. Confirm actual column headers, date formats, header-row placement, and whether company names in `Ref` are consistent. The the billing summary CSV previously shared does not contain patient-level UHID/Ref records and cannot validate the patient parser.
